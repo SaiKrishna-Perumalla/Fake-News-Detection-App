@@ -1,123 +1,110 @@
-import os
-import re
-import string
-import joblib
 import streamlit as st
+import joblib
+import os
+import numpy as np
+import pandas as pd
 
-st.write("Current Directory:", os.getcwd())
-st.write("Files:", os.listdir())
-
-MODEL_PATH = r"C:\Users\saive\Downloads\streamlit_fake_news_app_files\fake_news_pipeline.pkl"
-
-
-# IMPORTANT:
-# This function must be available when loading the saved sklearn pipeline,
-# because the notebook used it inside TfidfVectorizer(preprocessor=clean_text).
-def clean_text(text):
-    """Clean input news text before TF-IDF vectorization."""
-    text = str(text).lower()
-    text = re.sub(r"http\S+|www\S+", " ", text)      # remove URLs
-    text = re.sub(r"<.*?>", " ", text)               # remove HTML tags
-    text = re.sub(r"\d+", " ", text)                # remove numbers
-    text = text.translate(str.maketrans("", "", string.punctuation))
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
-
-
-@st.cache_resource
-def load_model():
-    """Load trained fake news pipeline."""
-    if not os.path.exists(MODEL_PATH):
-        st.error(
-            "Model file not found: fake_news_pipeline.pkl\n\n"
-            "First run your notebook or train_model.py to create the model file."
-        )
-        return None
-
-    try:
-        return joblib.load(MODEL_PATH)
-    except Exception as e:
-        st.error(f"Model loading failed: {e}")
-        return None
-
-
-def prediction_label(value):
-    """Convert model output into readable label."""
-    text_value = str(value).strip().lower()
-
-    # Handles common dataset labels
-    if text_value in ["1", "fake", "false"]:
-        return "Fake News"
-    if text_value in ["0", "real", "true"]:
-        return "Real News"
-
-    return str(value)
-
-
+# ---------------------------
+# Page Configuration
+# ---------------------------
 st.set_page_config(
-    page_title="Fake News Detection App",
+    page_title="Fake News Detection",
     page_icon="📰",
-    layout="centered"
+    layout="wide"
 )
 
+# ---------------------------
+# Locate Model
+# ---------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, "fake_news_pipeline.pkl")
+
+# Debug Information (Remove after deployment if desired)
+with st.expander("Debug Information"):
+    st.write("Current Directory:", BASE_DIR)
+    st.write("Files:", os.listdir(BASE_DIR))
+    st.write("Model Path:", MODEL_PATH)
+    st.write("Model Exists:", os.path.exists(MODEL_PATH))
+
+# ---------------------------
+# Load Model
+# ---------------------------
+if not os.path.exists(MODEL_PATH):
+    st.error("❌ Model file not found: fake_news_pipeline.pkl")
+    st.info("Run train_model.py first to generate the model.")
+    st.stop()
+
+try:
+    model = joblib.load(MODEL_PATH)
+except Exception as e:
+    st.error(f"Error loading model:\n\n{e}")
+    st.stop()
+
+# ---------------------------
+# Title
+# ---------------------------
 st.title("📰 Fake News Detection App")
-st.write("Enter a news article or headline to predict whether it is Real or Fake.")
 
-model = load_model()
+st.write(
+    "Enter a news headline or article below to determine whether it is **Real** or **Fake**."
+)
 
-news_text = st.text_area(
-    "Paste news text here:",
-    height=220,
-    placeholder="Example: Government announces new economic policy today..."
+# ---------------------------
+# Text Input
+# ---------------------------
+news = st.text_area(
+    "Paste News Text",
+    height=250,
+    placeholder="Example: Government announces new economic policy..."
 )
 
 col1, col2 = st.columns(2)
 
-with col1:
-    predict_button = st.button("Predict", use_container_width=True)
+predict = col1.button("Predict", use_container_width=True)
+clear = col2.button("Clear", use_container_width=True)
 
-with col2:
-    clear_button = st.button("Clear", use_container_width=True)
-
-if clear_button:
+if clear:
     st.rerun()
 
-if predict_button:
-    if model is None:
-        st.stop()
+# ---------------------------
+# Prediction
+# ---------------------------
+if predict:
 
-    if not news_text.strip():
-        st.warning("Please enter news text before prediction.")
-        st.stop()
+    if news.strip() == "":
+        st.warning("Please enter some news text.")
+    else:
 
-    try:
-        pred = model.predict([news_text])[0]
-        result = prediction_label(pred)
+        try:
+            prediction = model.predict([news])[0]
 
-        st.subheader("Prediction Result")
-        if result == "Fake News":
-            st.error(f"🚨 {result}")
-        elif result == "Real News":
-            st.success(f"✅ {result}")
-        else:
-            st.info(f"Prediction: {result}")
+            if hasattr(model, "predict_proba"):
+                probability = model.predict_proba([news])[0]
+                confidence = np.max(probability) * 100
+            else:
+                confidence = None
 
-        if hasattr(model, "predict_proba"):
-            probabilities = model.predict_proba([news_text])[0]
-            classes = model.classes_
+            st.markdown("## Prediction Result")
 
-            st.subheader("Prediction Confidence")
-            confidence_data = {
-                prediction_label(cls): round(float(prob) * 100, 2)
-                for cls, prob in zip(classes, probabilities)
-            }
-            st.bar_chart(confidence_data)
+            if prediction == 1:
+                st.success("✅ Real News")
+            else:
+                st.error("❌ Fake News")
 
-            max_prob = max(probabilities) * 100
-            st.write(f"Highest confidence: **{max_prob:.2f}%**")
+            if confidence is not None:
 
-    except Exception as e:
-        st.error(f"Prediction failed: {e}")
+                st.markdown("## Prediction Confidence")
 
-st.markdown("---")
-st.caption("Built using Streamlit, TF-IDF, and Machine Learning.")
+                df = pd.DataFrame({
+                    "Prediction": ["Confidence"],
+                    "Score": [confidence]
+                })
+
+                st.bar_chart(
+                    df.set_index("Prediction")
+                )
+
+                st.write(f"Confidence: **{confidence:.2f}%**")
+
+        except Exception as e:
+            st.error(f"Prediction Error:\n\n{e}")
