@@ -4,6 +4,9 @@ import string
 import joblib
 import streamlit as st
 
+st.write("Current Directory:", os.getcwd())
+st.write("Files:", os.listdir())
+
 MODEL_PATH = r"C:\Users\saive\Downloads\streamlit_fake_news_app_files\fake_news_pipeline.pkl"
 
 
